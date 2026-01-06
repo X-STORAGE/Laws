@@ -120,6 +120,11 @@ class Database(object):
             m[law.name].append(law)
         expired_laws = []
         for _, laws in m.items():
+            # ensure all laws has publish date
+            if any(map(lambda x: x.publish is None, laws)):
+                print(
+                    f"Warning: laws with multiple versions but some has no publish date: {[law.name for law in laws]}")
+                continue
             laws.sort(key=lambda x: x.publish)
             expired_laws += laws[:-1]
         for law in expired_laws:
@@ -220,6 +225,7 @@ class Database(object):
                 level=law_level,
             )
             count["created"] += 1
+        self.update_versions()
         return count
 
     def get_law_count(self):
