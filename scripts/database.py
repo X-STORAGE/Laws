@@ -148,7 +148,8 @@ class Database(object):
             if self.__ignore(ignore_folders, markdown_file):
                 # print(f"ignore {markdown_file}")
                 continue
-            r = re.search(r"\((\d{4,4}\-\d{2,2}\-\d{2,2})\)", markdown_file.stem)
+            r = re.search(
+                r"\((\d{4,4}\-\d{2,2}\-\d{2,2})\)", markdown_file.stem)
             if not r:
                 continue
             yield markdown_file, r.group(1), markdown_file.stem[: r.span()[0]]
@@ -183,7 +184,8 @@ class Database(object):
             info_end_idx = info_end_idx + 1
             first_title = list(
                 filter(
-                    lambda x: x[1].replace(" ", "") == titles[0].replace(" ", ""),
+                    lambda x: x[1].replace(
+                        " ", "") == titles[0].replace(" ", ""),
                     enumerate(lines),
                 )
             )

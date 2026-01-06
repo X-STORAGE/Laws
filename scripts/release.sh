@@ -28,7 +28,7 @@ function pack {
 
     cd "$1" || exit
 
-    _hash=$(git log -n 1 --pretty=format:"%H"  -- . ':!scripts' ':!.*' ':!DLC' | awk -F" " '{printf "%s", $1}')
+    _hash=$(git log -n 1 --pretty=format:"%H"  -- . ':!scripts' ':!scrape' ':!.*' ':!DLC' | awk -F" " '{printf "%s", $1}')
 
     if [ -f "$meta_file" ] && [ "$force" == 0 ] ; then
         if [ "$_hash" == "$(jq -r .hash "$meta_file")" ]; then
@@ -42,9 +42,9 @@ function pack {
     if [ "$1" != "." ]; then output_zip="$out_path/$output_name.$_hash.zip"; fi
     echo "Packaging $1 to $output_zip"
 
-    find . -type f \( -name ".*" -prune \) -o \( -name "scripts" -o -name "release" -o -name ".venv" -o -name ".git*" -o -name "DLC" \) -prune -o -exec zip -q "$output_zip" {} +
+    find . -type f \( -name ".*" -prune \) -o \( -name "scripts" -o -name "scrape" -o -name "release" -o -name ".venv" -o -name ".git*" -o -name "DLC" \) -prune -o -exec zip -q "$output_zip" {} +
 
-    _at=$(git log -n 1 --pretty=format:"%at"  -- . ':!scripts' ':!.*' ':!DLC' | awk -F" " '{printf "%s", $1}')
+    _at=$(git log -n 1 --pretty=format:"%at"  -- . ':!scripts' ':!scrape' ':!.*' ':!DLC' | awk -F" " '{printf "%s", $1}')
     size=$(du -k "$output_zip" | cut -f1)
 
     json=$(printf '{"name":"%s","hash":"%s", "update":%s, "filesize":%s}' $output_name $_hash $_at $size)

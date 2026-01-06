@@ -2,10 +2,12 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
-input_folder = Path("./__cache__/out/法律")
+input_folder = Path("../scrape/__cache__/out/法律")
 LOOKUP_FOLDER = Path("../")
 
 name_regxp = re.compile(r"(.*)\((\d{4}-\d{2}-\d{2})\).md")
+
+
 def find_all():
     # find all md files in LOOKUP_FOLDER,
     # file name pattern 专利法(2020-10-17).md
@@ -15,6 +17,8 @@ def find_all():
         # ignore if in 'scripts'
         if "scripts" in file_path.parts:
             continue
+        if "scrape" in file_path.parts:
+            continue
         m = name_regxp.search(file_path.name)
         # folder_name is the folder path relative to LOOKUP_FOLDER
         folder_name = file_path.relative_to(LOOKUP_FOLDER).parent
@@ -23,6 +27,7 @@ def find_all():
         title = m.group(1)
         result[title].add(folder_name)
     return result
+
 
 def main():
     laws_map = find_all()
@@ -41,6 +46,7 @@ def main():
         folder = list(folders)[0]
         print("move", file_path, "to", LOOKUP_FOLDER / folder / file_path.name)
         file_path.rename(LOOKUP_FOLDER / folder / file_path.name)
+
 
 if __name__ == "__main__":
     main()

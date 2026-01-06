@@ -9,6 +9,7 @@ word_parser = WordParser()
 content_parser = ContentParser()
 cache = CacheManager()
 
+
 def parse(doc_file: Path):
     print(doc_file)
     title, desc, content = word_parser.parse_document(doc_file, doc_file.stem)

@@ -21,4 +21,5 @@ DESC_REMOVE_PATTERNS = [
     "^自",
 ]
 
-LINE_START = f"""^({"|".join(map(lambda x: f"({x})".replace(NUMBER_RE, "一"), filter(lambda x: "节" not in x, LINE_RE)))})"""
+LINE_START = f"""^({"|".join(map(lambda x: f"({x})".replace(
+    NUMBER_RE, "一"), filter(lambda x: "节" not in x, LINE_RE)))})"""

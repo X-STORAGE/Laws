@@ -84,12 +84,12 @@ class ContentParser(object):
                     break
         return ret
 
-    def parse(self, result, title: str, desc, content: List[str]) -> List[str]:
+    def parse(self, title: str, desc, content: List[str]) -> List[str]:
         desc = self.__filter_desc(desc)
         content = self.__filter_content(content)
         if len(content) == 0:
             logger.warning(f"{title} has no content")
-            return
+            return []
 
         # if title exists in first then line of content, remove it
         if title.strip() in content[:10]:

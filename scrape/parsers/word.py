@@ -11,7 +11,7 @@ from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
 from docx.table import Table, _Cell, _Row
 from docx.text.paragraph import Paragraph
-from parsers.base import Parser
+# from parsers.base import Parser
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +23,9 @@ def isStartLine(line: str):
     return False
 
 
-class WordParser(Parser):
-    def __init__(self) -> None:
-        super().__init__("WORD")
+class WordParser:
+    # def __init__(self) -> None:
+    #     super().__init__("WORD")
 
     def iter_block_items(self, parent):
         """
@@ -48,17 +48,6 @@ class WordParser(Parser):
                 yield Paragraph(child, parent)
             elif isinstance(child, CT_Tbl):
                 yield Table(child, parent)
-
-    def parse(self, result, detail) -> Tuple[str, str, List[str]]:
-        level = result["level"].strip()
-        title = result["title"].strip()
-
-        document = self.request.get_word(detail["path"], Path(level) / title)
-        if not document:
-            logger.warning(f"document {detail['path']} not exists")
-            return
-
-        return self.parse_document(document, title)
 
     def parse_document(self, document, title):
         if not isinstance(document, _Document):
@@ -117,7 +106,7 @@ class WordParser(Parser):
                 content.append(line)
 
             # 信息行结束
-            if isDesc and re.search("[）\)]$", line):
+            if isDesc and re.search(r"[）\)]$", line):
                 isDesc = False
             if isDesc and re.search(r"目.*录", line):
                 isDesc = False
