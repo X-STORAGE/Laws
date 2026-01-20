@@ -46,7 +46,7 @@ def main():
     bar = tqdm.tqdm(total=0, unit="laws", unit_scale=True)
 
     while True:
-        ret = p.fetch(page_num=page)
+        ret = p.fetch(page_num=page) # , type_codes=[201, 210, 215]
         if len(ret.items) <= 0:
             break
         bar.total += len(ret.items)

@@ -2,7 +2,6 @@ import requests
 from model.law import FetchedLawResponse, LawListItem, FetchedDocumentResponse
 from .base import Provider
 from .cache_provider import cache, CacheType
-import urllib.request
 
 
 class NationalLawDatabaseProvider(Provider):
