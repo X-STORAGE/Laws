@@ -48,6 +48,8 @@ class WordParser:
                 yield Paragraph(child, parent)
             elif isinstance(child, CT_Tbl):
                 yield Table(child, parent)
+            else:
+                logger.warning(f"unknown child {child} {type(child)}")
 
     def parse_document(self, document, title):
         if not isinstance(document, _Document):

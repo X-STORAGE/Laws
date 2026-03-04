@@ -2,6 +2,7 @@ import requests
 from model.law import FetchedLawResponse, LawListItem, FetchedDocumentResponse
 from .base import Provider
 from .cache_provider import cache, CacheType
+import re
 
 
 class NationalLawDatabaseProvider(Provider):
@@ -24,9 +25,12 @@ class NationalLawDatabaseProvider(Provider):
         rows = response.get("rows", [])
 
         def map_item(item: dict):
+            title = item.get("title", "")
+            # remove html tags
+            title = re.sub(r"<[^>]*>", "", title)
             return LawListItem(
                 id=item.get("bbbs", ""),
-                title=item.get("title", ""),
+                title=title,
                 released_by=item.get("zdjgName", ""),
                 publication_date=item.get("gbrq", ""),
                 in_effect_date=item.get("sxrq", ""),
@@ -50,9 +54,6 @@ class NationalLawDatabaseProvider(Provider):
         if not download_url:
             return None
 
-        # {"msg": "操作成功", "code": 200, "data": {"urlIn": "http://172.16.220.27:38080/law-search/file/download?filePath=/prod/20251227/5036535b8e084dffb96aebc07a8a7ea3.docx&fileName=中华人民共和国国家通用语言文字法_20251227.docx&response-content-disposition=attachment;filename=\"中华人民共和国国家通用语言文字法_20251227.docx\"",
-        #                                       "url": "https://flkoss.obs-bj2.cucloud.cn/prod/20251227/5036535b8e084dffb96aebc07a8a7ea3.docx?response-content-disposition=attachment%3B%20filename%3D%22%25E4%25B8%25AD%25E5%258D%258E%25E4%25BA%25BA%25E6%25B0%2591%25E5%2585%25B1%25E5%2592%258C%25E5%259B%25BD%25E5%259B%25BD%25E5%25AE%25B6%25E9%2580%259A%25E7%2594%25A8%25E8%25AF%25AD%25E8%25A8%2580%25E6%2596%2587%25E5%25AD%2597%25E6%25B3%2595_20251227.docx%22&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20260106T015131Z&X-Amz-SignedHeaders=host&X-Amz-Expires=3600&X-Amz-Credential=8uue2voatpgnwukhfj46%2F20260106%2Fcn-north-1%2Fs3%2Faws4_request&X-Amz-Signature=f5df9f3e305334b28a074cb32894e8b22201c4e6ee6f1a0cb7cd7e46afc08452"}}
-
         path = self.cache_manager.download_binary(
             download_url,
             CacheType.WordDocument,
@@ -66,29 +67,46 @@ class NationalLawDatabaseProvider(Provider):
 
     @cache(CacheType.WebPage, filetype="json")
     def __search(self, page_num=1, page_size=20, **kwargs) -> dict:
-        type_codes = kwargs.get(
-            "type_codes",
-            [102, 110, 120, 130, 140, 150, 160, 170, 180, 190, 195],
-        )
-        released_by = kwargs.get("released_by", [])
+        use_high_search = kwargs.get("use_high_search", False)
 
         payload = {
-            "searchRange": 1,
-            "sxrq": [],
-            "gbrq": [],
-            "searchType": 2,
-            "sxx": [],
-            "gbrqYear": [],
-            "flfgCodeId": type_codes,
-            "zdjgCodeId": released_by,
-            "searchContent": "",
-            "orderByParam": {"order": "gbrq", "sort": "DESC"},
-            "pageNum": page_num,
-            "pageSize": page_size
         }
 
+        if use_high_search:
+            # Sample 
+            # dataList = [("title", "xxxx")]
+            dataList = kwargs.get("dataList", [])
+            dataList = list(map(lambda x: {"fieldName": x[0], "values": [x[1]], "link": 0, "searchType": 1, "index": 0}, dataList))
+            payload = {
+                "dataList": dataList,
+                "orderByParam": {},
+                "pageNum": page_num,
+                "pageSize": page_size
+            }
+        else:
+            payload = { 
+                "searchRange": 1,
+                "sxrq": [],
+                "gbrq": [],
+                "searchType": 2,
+                "sxx": [4,3], # 现行有效、未生效
+                "gbrqYear": [],
+                "flfgCodeId": [102, 110, 120, 130, 140, 150, 160, 170, 180, 190, 195],
+                "zdjgCodeId": [],
+                "searchContent": "",
+                "orderByParam": {"order": "gbrq", "sort": "DESC"},
+                "pageNum": page_num,
+                "pageSize": page_size,
+                **kwargs,
+            }
+            print(payload)
+
+        url = self.BASE_URL + "/law-search/search/list"
+        if use_high_search:
+            url = self.BASE_URL + "/law-search/highSearch/highSearch"
+
         response = requests.post(
-            self.BASE_URL + "/law-search/search/list",
+            url,
             headers=self.HEADERS,
             json=payload
         )

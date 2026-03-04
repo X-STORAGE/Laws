@@ -1,3 +1,4 @@
+import sys
 from providers import NationalLawDatabaseProvider, Provider
 import re
 from model.law import LawListItem
@@ -7,6 +8,7 @@ from parsers.word import WordParser
 from parsers.content import ContentParser
 from pathlib import Path
 import tqdm
+import sys
 
 
 def should_ignore(name) -> bool:
@@ -39,14 +41,25 @@ def process_item(provider: Provider, item: LawListItem):
     provider.cache_manager.write_law(ret, filedata)
 
 
-def main():
+def search_current_effective_law(title: str):
+    print(f"Searching {title}", file=sys.stderr)
+    p: Provider = NationalLawDatabaseProvider()
+    ret = p.fetch(
+        use_high_search=True,
+        dataList=[
+            ("title", title)
+        ]
+    )
+    for item in ret.items:
+        process_item(p, item)
+
+
+def download_all(**kwargs):
     p: Provider = NationalLawDatabaseProvider()
     page = 1
-
     bar = tqdm.tqdm(total=0, unit="laws", unit_scale=True)
-
     while True:
-        ret = p.fetch(page_num=page) # , type_codes=[201, 210, 215]
+        ret = p.fetch(page_num=page, **kwargs)
         if len(ret.items) <= 0:
             break
         bar.total += len(ret.items)
@@ -57,6 +70,24 @@ def main():
             process_item(p, item)
             bar.update(1)
         page += 1
+
+
+def main():
+    if len(sys.argv) == 2:
+        law_name = sys.argv[1]
+        search_current_effective_law(law_name)
+        return
+    
+    flfgCodeId = [
+        # 102, 110, 120, 130, 140, 150, 160, 170, # 法律
+        # 180, # 法律解释
+        210,  # 行政法规
+        311,320,330,340,350 # 司法解释
+    ]
+
+    download_all(
+        flfgCodeId=flfgCodeId,
+    )
 
 
 if __name__ == "__main__":

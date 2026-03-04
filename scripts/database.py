@@ -25,6 +25,11 @@ class Category(BaseModel):
     group = peewee.TextField(null=True)
     order = peewee.IntegerField(null=True)
 
+    def __repr__(self) -> str:
+        return f"<Category {self.name}>"
+
+    __str__ = __repr__
+
     @staticmethod
     def get_or_create_category(folder: Path) -> "Category":
         try:
@@ -43,7 +48,7 @@ class Law(BaseModel):
     filename = peewee.TextField(null=True)
     publish = peewee.DateField(formats="%Y-%m-%d", null=True)
     valid_from = peewee.DateField(formats="%Y-%m-%d", null=True)
-    expired = peewee.BooleanField(default=False)
+    valid_to = peewee.DateField(formats="%Y-%m-%d", null=False, default="2099-12-31")
     order = peewee.IntegerField(null=True)
     ver = peewee.IntegerField(null=False, default=0)
 
@@ -52,7 +57,7 @@ class Law(BaseModel):
     category_id = peewee.UUIDField(null=False)
 
     def __repr__(self) -> str:
-        return f"<Law {self.name}>"
+        return f"<Law {self.name} {self.publish}>"
 
     __str__ = __repr__
 
@@ -72,6 +77,18 @@ class Law(BaseModel):
         if expr:
             return Law.select().where(expr)
         return []
+
+
+    def file_path(self):
+        cateogry = Category.get(id=self.category_id)
+        filename = self.filename
+        if not filename:
+            filename = self.name
+            if self.publish:
+                filename += f"({self.publish})"
+            filename += ".md"
+        base = Path("./")
+        return base / cateogry.folder / filename
 
 
 def get_law_level_by_folder(folder: Path) -> str:
@@ -107,6 +124,27 @@ class Database(object):
             self.db.drop_tables(self.tables)
             self.db.create_tables(self.tables)
 
+    def read_valid_from(self, law: Law):
+        file_path:Path = law.file_path()
+        if not file_path.exists():
+            raise Exception(f"File not found: {file_path}")
+        with open(file_path, "r") as f:
+            content = f.read()
+
+        valid_since_publish_keys = [
+            "本解释公布施行后",
+            "自公布之日起施行",
+            "自发布之日起施行"
+        ]
+        for key in valid_since_publish_keys:
+            if key in content:
+                return law.publish
+        pattern = re.compile(r"自(\d{4})年(\d{1,2})月(\d{1,2})日起施行")
+        m = pattern.search(content)
+        if m:
+            return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+        return None
+
     # 更新法律版本
     # 如果任意法律有多个版本（即同名，但多个 publish, 则将 ver 设为其数量）
     # 除最新版本的法律, 其余均设为 expired.
@@ -120,16 +158,58 @@ class Database(object):
             m[law.name].append(law)
         expired_laws = []
         for _, laws in m.items():
+            levels = set(map(lambda x: x.level, laws))
+            if len(levels) > 1:
+                print(f"Warning: laws with multiple versions but different levels: {[law.name for law in laws]}")
+                continue
+            level = levels.pop()
+            if level == "司法解释":
+                continue
+
             # ensure all laws has publish date
             if any(map(lambda x: x.publish is None, laws)):
                 print(
                     f"Warning: laws with multiple versions but some has no publish date: {[law.name for law in laws]}")
                 continue
             laws.sort(key=lambda x: x.publish)
-            expired_laws += laws[:-1]
-        for law in expired_laws:
-            law.expired = True
-            law.save()
+
+            for i in range(len(laws)):
+                law = laws[i]
+                extracted_valid_from = self.read_valid_from(law)
+
+                # Determine valid_from for this version
+                # law.publish is a date object or None
+                publish_str = str(law.publish) if law.publish else None
+
+                if extracted_valid_from:
+                    if not publish_str:
+                        valid_from = extracted_valid_from
+                    else:
+                        # Scenario 1 & 2: 
+                        # If extracted date (from text) is today or future relative to publish date,
+                        # it's a future effective law.
+                        # If extracted date is in the past relative to publish date,
+                        # it's an amendment/republication of an old law, so we use publish date.
+                        if extracted_valid_from >= publish_str:
+                            valid_from = extracted_valid_from
+                        else:
+                            valid_from = publish_str
+                else:
+                    valid_from = publish_str
+
+                if not valid_from:
+                    print(f"Warning: {law} has no valid from date and no publish date")
+                    continue
+
+                if i > 0:
+                    previous_law = laws[i-1]
+                    previous_law.valid_to = valid_from
+                    previous_law.save()
+                    print(f"✅ {previous_law} 失效于 {valid_from}")
+
+                print(f"✅ {law} 生效于 {valid_from}")
+                law.valid_from = valid_from
+                law.save()
 
     @property
     def lookup_path(self) -> Path:
@@ -166,6 +246,47 @@ class Database(object):
             law.level = level
             law.save()
         return updated_count
+
+
+    def migrate(self):
+        # 1. Check existing columns
+        cursor = self.db.execute_sql("PRAGMA table_info(law)")
+        columns = [row[1] for row in cursor.fetchall()]
+
+        # 2. Add valid_from if not exist
+        if 'valid_from' not in columns:
+            try:
+                self.db.execute_sql('ALTER TABLE law ADD COLUMN valid_from DATE')
+                print("Added valid_from column")
+            except Exception as e:
+                print(f"Error adding valid_from column: {e}")
+
+        # 3. Add valid_to if not exist
+        if 'valid_to' not in columns:
+            try:
+                # Note: null=False and default requires care in ALTER TABLE
+                self.db.execute_sql("ALTER TABLE law ADD COLUMN valid_to DATE NOT NULL DEFAULT '2099-12-31'")
+                print("Added valid_to column")
+            except Exception as e:
+                print(f"Error adding valid_to column: {e}")
+
+        # 4. Migrate data from expired to valid_to
+        if 'expired' in columns:
+            try:
+                # Set expired ones to 1970-01-01
+                self.db.execute_sql("UPDATE law SET valid_to = '1970-01-01' WHERE expired = 1")
+                # Set non-expired ones to default
+                self.db.execute_sql("UPDATE law SET valid_to = '2099-12-31' WHERE expired = 0")
+                print("Migrated data from expired to valid_to")
+
+                # Try to drop expired if supported (SQLite 3.35.0+)
+                try:
+                    self.db.execute_sql("ALTER TABLE law DROP COLUMN expired")
+                    print("Dropped expired column")
+                except Exception:
+                    print("Could not drop expired column (likely older SQLite version), it will be ignored by the model.")
+            except Exception as e:
+                print(f"Error migrating data: {e}")
 
     def validate(self):
         for law_file, publish_at, law_name in self.load_laws():
@@ -253,8 +374,8 @@ def main():
         print(f"Created: {count['created']}")
         return
 
-    if command == "validate":
-        db.validate()
+    if command == "migrate":
+        db.migrate()
         return
 
     print("Unknown command")
