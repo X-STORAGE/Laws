@@ -125,7 +125,8 @@ class Database(object):
             self.db.create_tables(self.tables)
 
     def read_valid_from(self, law: Law):
-        file_path:Path = law.file_path()
+        root_folder = self.sqlite_file.parent # parten of sqlite file
+        file_path: Path = root_folder /law.file_path()
         if not file_path.exists():
             raise Exception(f"File not found: {file_path}")
         with open(file_path, "r") as f:
@@ -203,13 +204,15 @@ class Database(object):
 
                 if i > 0:
                     previous_law = laws[i-1]
-                    previous_law.valid_to = valid_from
-                    previous_law.save()
-                    print(f"✅ {previous_law} 失效于 {valid_from}")
+                    if previous_law.valid_to != valid_from:
+                        previous_law.valid_to = valid_from
+                        previous_law.save()
+                        print(f"✅ {previous_law} 失效于 {valid_from}")
 
-                print(f"✅ {law} 生效于 {valid_from}")
-                law.valid_from = valid_from
-                law.save()
+                if law.valid_from != valid_from:
+                    law.valid_from = valid_from
+                    law.save()
+                    print(f"✅ {law} 生效于 {valid_from}")
 
     @property
     def lookup_path(self) -> Path:
@@ -347,7 +350,35 @@ class Database(object):
             )
             count["created"] += 1
         self.update_versions()
+        self.update_category()
         return count
+
+    def update_category(self):
+        # if it's dlc, the filepath is ./DLC*/
+        # then it should only has 1 category
+        # and make sure the subfolder is True
+        isDLC = "DLC" in self.sqlite_file.parts 
+        if not isDLC:
+            print("Not DLC, skip update category")
+            return
+        categories = Category.select()
+        assert len(categories) == 1
+        category = categories[0]
+        
+        changed = False
+
+        if not category.isSubFolder:
+            print("Setting subfolder to True")
+            category.isSubFolder = True
+            changed = True
+
+        if not category.group:
+            print("Setting group to 地方法规")
+            category.group = "地方法规"
+            changed = True
+
+        if changed:
+            category.save()
 
     def get_law_count(self):
         return Law.select().count()

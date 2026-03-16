@@ -99,7 +99,6 @@ class NationalLawDatabaseProvider(Provider):
                 "pageSize": page_size,
                 **kwargs,
             }
-            print(payload)
 
         url = self.BASE_URL + "/law-search/search/list"
         if use_high_search:

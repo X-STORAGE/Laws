@@ -1,17 +1,25 @@
 #!/bin/bash
+set -e
 
-folder="../DLC"
+DLC_PATTERN="../DLC*/*"
+MAIN_DB="../db.sqlite3"
 
-echo "Updating DLCs"
-for dir in "$folder"*/*; do
-    filename=$(basename "$dir")
+update_db() {
+    local db_path="$1"
+    local message="$2"
+    
+    echo "$message"
+    python database.py migrate "$db_path"
+    python database.py update "$db_path"
+}
 
-    if [ "$filename" != "db.sqlite3" ] && [ -d "$dir" ]; then
-        echo "Updating $dir/db.sqlite3"
-        python database.py update $dir/db.sqlite3
+echo "=== Updating DLCs ==="
+for dir in $DLC_PATTERN; do
+    if [ -d "$dir" ] && [ "$(basename "$dir")" != "db.sqlite3" ]; then
+        update_db "$dir/db.sqlite3" "Updating $dir/db.sqlite3"
+        echo "--------------"
     fi
-    echo "--------------"
 done
 
-echo "Updating main database"
-python database.py update ../db.sqlite3
+echo "=== Updating main database ==="
+update_db "$MAIN_DB" "Updating main database"

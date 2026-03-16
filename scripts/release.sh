@@ -30,8 +30,8 @@ function pack {
 
     _hash=$(git log -n 1 --pretty=format:"%H"  -- . ':!scripts' ':!scrape' ':!.*' ':!DLC' | awk -F" " '{printf "%s", $1}')
 
-    if [ -f "$meta_file" ] && [ "$force" == 0 ] ; then
-        if [ "$_hash" == "$(jq -r .hash "$meta_file")" ]; then
+    if [ "$force" == 0 ] ; then
+        if [ "$_hash" == "$(git show release:alpha/metadata/$output_name.meta | jq -r .hash)" ]; then
             echo "No changes detected $1, skipping..."
             return
         fi
@@ -86,5 +86,9 @@ function genJSON() {
     rm $OUT_JSON_FILE".tmp"
 }
 
-packall
-genJSON
+# check out release branch alpha folder to ./release folder
+git checkout release -- alpha
+mv alpha ./release
+
+# packall
+# genJSON

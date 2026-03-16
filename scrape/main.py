@@ -1,15 +1,29 @@
-import sys
+from providers.cache_provider import CacheType
+import click
+import click
 from providers import NationalLawDatabaseProvider, Provider
 import re
 from model.law import LawListItem
 from docx import Document
-# from parsers.html import HTMLParser
 from parsers.word import WordParser
+import doc2docx
 from parsers.content import ContentParser
 from pathlib import Path
 import tqdm
 import sys
+import subprocess
+from common import REGION_CODE_MAP
 
+paganing_options= [
+    click.option('--limit', type=int, default=10)
+]
+
+def add_options(options):
+    def _add_options(func):
+        for option in reversed(options):
+            func = option(func)
+        return func
+    return _add_options
 
 def should_ignore(name) -> bool:
     title = name.replace("中华人民共和国", "")
@@ -18,12 +32,44 @@ def should_ignore(name) -> bool:
     return False
 
 
-def process_item(provider: Provider, item: LawListItem):
-    response = provider.fetch_document(item.id)
+def convert_to_docx(p: Path) -> Path:
+    print(f"Converting {p} to .docx", file=sys.stderr)
+    subprocess.run(
+        [
+            "soffice",
+            "--headless",
+            "--convert-to",
+            "docx",
+            "--outdir",
+            str(p.parent),
+            str(p),
+        ],
+        check=True,
+    )
+    p = p.with_suffix(".docx")
+    if p.exists():
+        return p
+    raise ValueError(f"无法转换文件: {p}")
+
+def process_item(provider: Provider, item: LawListItem, path_modifier: callable = lambda x: x):
+    try:
+        response = provider.fetch_document(item.id)
+    except Exception as e:
+        print(f"无法获取文件: {item.title} {e}", file=sys.stderr)
+        return False
     if not response or not response.path_to_file:
         raise ValueError(f"无法获取文件: {item.title}")
-    with open(response.path_to_file, "rb") as f:
-        document = Document(f)
+    
+    path_to_file = response.path_to_file
+    if path_to_file.suffix == ".doc":
+        path_to_file = convert_to_docx(path_to_file)
+
+    with open(path_to_file, "rb") as f:
+        try:
+            document = Document(f)
+        except Exception as e:
+            print(f"无法解析文件: {item.title} {e}", file=sys.stderr)
+            return False
     parser = WordParser()
 
     _, desc, content = parser.parse_document(document, item.title)
@@ -37,58 +83,101 @@ def process_item(provider: Provider, item: LawListItem):
     filename = f"{filename}.md"
 
     ret = Path(".") / item.type / filename
+    if path_modifier:
+        ret = path_modifier(ret)
 
     provider.cache_manager.write_law(ret, filedata)
 
+    return ret
 
-def search_current_effective_law(title: str):
-    print(f"Searching {title}", file=sys.stderr)
+
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+@click.argument("law_name")
+def download(law_name):
+    """Search for a specific law by name and download it."""
+    print(f"Searching {law_name}", file=sys.stderr)
     p: Provider = NationalLawDatabaseProvider()
     ret = p.fetch(
         use_high_search=True,
         dataList=[
-            ("title", title)
+            ("title", law_name)
         ]
     )
     for item in ret.items:
         process_item(p, item)
 
 
-def download_all(**kwargs):
+def _download_all(limit:int, path_modifier: callable = lambda x: x, **kwargs):
+    click.echo(f"Downlaoding {limit if limit > 0 else 'all'} with params: {kwargs}")
     p: Provider = NationalLawDatabaseProvider()
-    page = 1
-    bar = tqdm.tqdm(total=0, unit="laws", unit_scale=True)
-    while True:
-        ret = p.fetch(page_num=page, **kwargs)
-        if len(ret.items) <= 0:
-            break
-        bar.total += len(ret.items)
-        for item in ret.items:
-            if should_ignore(item.title):
-                continue
-            bar.set_description(f"Processing: {item.short_title}")
-            process_item(p, item)
-            bar.update(1)
-        page += 1
+    downloaded_laws = p.cache_manager.get_all_laws()
 
+    def is_downloaded(title, published_at):
+        if title not in downloaded_laws:
+            return False
+        return published_at in downloaded_laws[title]
 
-def main():
-    if len(sys.argv) == 2:
-        law_name = sys.argv[1]
-        search_current_effective_law(law_name)
-        return
+    def loop_laws():
+        page = 1
+        while True:
+            ret = p.fetch(page_num=page, **kwargs)
+            if len(ret.items) <= 0:
+                break
+            for item in ret.items:
+                if should_ignore(item.title):
+                    continue
+                if is_downloaded(item.title, item.publication_date):
+                    continue
+                yield item
+            page += 1
     
-    flfgCodeId = [
-        # 102, 110, 120, 130, 140, 150, 160, 170, # 法律
-        # 180, # 法律解释
-        210,  # 行政法规
-        311,320,330,340,350 # 司法解释
-    ]
+    bar = tqdm.tqdm(total=0, unit="laws", unit_scale=True)
+    for count, item in enumerate(loop_laws()):
+        bar.set_description(f"Processing: {item.short_title}")
+        try:
+            process_item(p, item,path_modifier=path_modifier)
+        except Exception as e:
+            print(f"Failed to process {item.title}: {e}", file=sys.stderr)
+        bar.update(1)
 
-    download_all(
-        flfgCodeId=flfgCodeId,
-    )
+@add_options(paganing_options)
+@cli.command()
+def download_all(limit: int):
+    """Iterate through all laws and download them."""
+    kwargs = {
+        "flfgCodeId": [
+            210,  # 行政法规
+            311, 320, 330, 340, 350  # 司法解释
+        ]
+    }
+    _download_all(limit, **kwargs)
+
+
+@add_options(paganing_options)
+@cli.command()
+@click.argument("region")
+def download_dlc(region: str, limit: int):
+    """Download DLC for a specific region."""
+    if region not in REGION_CODE_MAP:
+        raise ValueError(f"Unknown region: {region}")
+
+    kwargs = {
+        "flfgCodeId": [
+            230,  # 地方性法规
+        ],
+        "zdjgCodeId": [
+            REGION_CODE_MAP[region]
+        ],
+    }
+    def path_modifier(path: Path):
+        return Path(".") / f"{region}地方法规" / "地方性法规"/ region / path.name
+    _download_all(limit,path_modifier=path_modifier,**kwargs)
 
 
 if __name__ == "__main__":
-    main()
+    cli()

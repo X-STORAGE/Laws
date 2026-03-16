@@ -3,11 +3,12 @@ import logging
 import re
 from enum import Enum
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Dict, Set
 from functools import wraps
 from hashlib import sha1
 
 import urllib.request
+import urllib.parse
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,13 @@ class CacheManager(object):
                 f.write(data if isinstance(data, str) else str(data))
 
     def download_binary(self, url: str, type: CacheType) -> Path | None:
-        name = sha1(url.encode('utf-8')).hexdigest()
+        u = urllib.parse.urlparse(url)
+
+        # https://flkoss.obs-bj2.cucloud.cn/prod/20251128/5f98d6b9eca7456aa8e53a9f73ef7c7e.docx
+        # extract the filename `5f98d6b9eca7456aa8e53a9f73ef7c7e.docx`
+        filename = u.path.split("/")[-1]
+
+        name = filename
         path = self.__get_path(name, type)
         if not path.exists():
             try:
@@ -53,6 +60,10 @@ class CacheManager(object):
                 logger.error(e)
                 return None
         return path
+
+    def list(self, type: CacheType):
+        p: Path = self.base_path / type.value
+        return [f.name for f in p.iterdir()]
 
     def __get_path(self, key: str, type: CacheType, filetype=None) -> Path:
         if filetype:
@@ -93,6 +104,21 @@ class CacheManager(object):
     #     if not p.exists():
     #         p.mkdir(parents=True)
     #     return p
+
+    def get_all_laws(self) -> Dict[str, Set[str]]:
+        full_path = self.base_path / "out"
+        r = re.compile(r"(.+)\((\d{4}-\d{2}-\d{2})\)\.md")
+        normalized_laws = {}
+        for f in full_path.glob("**/*.md"):
+            match = r.match(f.name) 
+            if not match:
+                continue
+            title = match.group(1)
+            date = match.group(2)
+            if title not in normalized_laws:
+                normalized_laws[title] = set()
+            normalized_laws[title].add(date)
+        return normalized_laws
 
     def write_law(self, path: Path, data: List[str]):
         full_path = self.base_path / "out" / path
