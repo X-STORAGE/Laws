@@ -1,5 +1,8 @@
 #!/bin/bash
 
+RELEASE_FOLDER="./.release"
+RELEASE_BRANCH="release"
+
 force=0
 if [ "$1" == "-f" ]; then
     force=1
@@ -15,7 +18,7 @@ current_path=$(pwd)
 
 function pack {
 
-    out_path="$(pwd)/release"
+    out_path="$(pwd)/$RELEASE_FOLDER"
     output_zip_name="$2"
     output_name=${output_zip_name%.*}
 
@@ -31,7 +34,7 @@ function pack {
     _hash=$(git log -n 1 --pretty=format:"%H"  -- . ':!scripts' ':!scrape' ':!.*' ':!DLC' | awk -F" " '{printf "%s", $1}')
 
     if [ "$force" == 0 ] ; then
-        if [ "$_hash" == "$(git show release:alpha/metadata/$output_name.meta | jq -r .hash)" ]; then
+        if [ "$_hash" == "$(git show $RELEASE_BRANCH:alpha/metadata/$output_name.meta | jq -r .hash)" ]; then
             echo "No changes detected $1, skipping..."
             return
         fi
@@ -66,13 +69,13 @@ function packall() {
 function genJSON() {
     # Generate dlc.txt
     cd $current_path
-    OUT_JSON_FILE="./release/dlc.json"
-    METADATA_PATH="./release/metadata"
+    OUT_JSON_FILE="$RELEASE_FOLDER/dlc.json"
+    METADATA_PATH="$RELEASE_FOLDER/metadata"
     if [ -f $OUT_JSON_FILE ]; then rm $OUT_JSON_FILE; fi
 
     echo "[" >> $OUT_JSON_FILE
 
-    for file in $(find ./release/DLC -name "*.zip"); do
+    for file in $(find $RELEASE_FOLDER/DLC -name "*.zip"); do
         name=$(basename $file)
         name=${name%.*}
         name=${name%.*}
@@ -87,8 +90,9 @@ function genJSON() {
 }
 
 # check out release branch alpha folder to ./release folder
-git checkout release -- alpha
-mv alpha ./release
+rm -rf $RELEASE_FOLDER
+git restore --source $RELEASE_BRANCH --worktree -- alpha
+mv alpha $RELEASE_FOLDER
 
-# packall
-# genJSON
+packall
+genJSON
