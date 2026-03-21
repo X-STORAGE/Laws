@@ -34,9 +34,13 @@ function pack {
     _hash=$(git log -n 1 --pretty=format:"%H"  -- . ':!scripts' ':!scrape' ':!.*' ':!DLC' | awk -F" " '{printf "%s", $1}')
 
     if [ "$force" == 0 ] ; then
-        if [ "$_hash" == "$(git show $RELEASE_BRANCH:alpha/metadata/$output_name.meta | jq -r .hash)" ]; then
-            echo "No changes detected $1, skipping..."
-            return
+        # Check if the metadata file exists in the release branch
+        if git show "$RELEASE_BRANCH:alpha/metadata/$output_name.meta" >/dev/null 2>&1; then
+            old_hash=$(git show "$RELEASE_BRANCH:alpha/metadata/$output_name.meta" 2>/dev/null | jq -r .hash 2>/dev/null)
+            if [ -n "$old_hash" ] && [ "$old_hash" != "null" ] && [ -n "$_hash" ] && [ "$_hash" == "$old_hash" ]; then
+                echo "No changes detected $1, skipping..."
+                return
+            fi
         fi
     fi
 
@@ -89,6 +93,38 @@ function genJSON() {
     rm $OUT_JSON_FILE".tmp"
 }
 
+function finalize() {
+    echo "Finalizing release..."
+    cd "$current_path"
+
+    _tmp_dir=$(mktemp -d)
+    cp -r "$RELEASE_FOLDER"/* "$_tmp_dir/"
+
+    _current_branch=$(git rev-parse --abbrev-ref HEAD)
+
+    # Save current state
+    _stash_out=$(git stash push -m "release_temp_stash")
+    _stashed=0
+    if [[ "$_stash_out" != "No local changes to save" ]]; then
+        _stashed=1
+    fi
+
+    git checkout "$RELEASE_BRANCH"
+    rm -rf alpha/*
+    cp -r "$_tmp_dir"/* alpha/
+    git add alpha
+    git commit -m "release: $(date +'%Y-%m-%d %H:%M:%S')"
+    git push
+
+    git checkout "$_current_branch"
+    if [ $_stashed -eq 1 ]; then
+        git stash pop
+    fi
+
+    rm -rf "$_tmp_dir"
+    echo "Release finalized."
+}
+
 # check out release branch alpha folder to ./release folder
 rm -rf $RELEASE_FOLDER
 git restore --source $RELEASE_BRANCH --worktree -- alpha
@@ -96,3 +132,5 @@ mv alpha $RELEASE_FOLDER
 
 packall
 genJSON
+finalize
+

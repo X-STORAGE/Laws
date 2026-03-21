@@ -8,10 +8,11 @@ class LawListItem:
     id: str
     title: str
     released_by: str
-    publication_date: str
-    in_effect_date: str
     type: str
-    type_code: int
+    publication_date: str | None = None
+    in_effect_date: str | None = None
+    type_code: int | None = None
+    file_link: str | None = None
 
     @property
     def short_title(self) -> str:
@@ -26,5 +27,5 @@ class FetchedLawResponse:
 
 @dataclass
 class FetchedDocumentResponse:
-    law_id: str
+    law: LawListItem
     path_to_file: Path | None

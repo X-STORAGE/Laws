@@ -42,8 +42,8 @@ class NationalLawDatabaseProvider(Provider):
             items=list(map(map_item, rows)),
         )
 
-    def fetch_document(self, law_id: str) -> FetchedDocumentResponse | None:
-        full_url = f"{self.BASE_URL}/law-search/download/pc?format=docx&bbbs={law_id}"
+    def fetch_document(self, law: LawListItem) -> FetchedDocumentResponse | None:
+        full_url = f"{self.BASE_URL}/law-search/download/pc?format=docx&bbbs={law.id}"
         response = requests.get(
             full_url,
             headers=self.HEADERS,
@@ -61,7 +61,7 @@ class NationalLawDatabaseProvider(Provider):
         if path is None:
             return None
         return FetchedDocumentResponse(
-            law_id=law_id,
+            law=law,
             path_to_file=path,
         )
 
@@ -73,10 +73,11 @@ class NationalLawDatabaseProvider(Provider):
         }
 
         if use_high_search:
-            # Sample 
+            # Sample
             # dataList = [("title", "xxxx")]
             dataList = kwargs.get("dataList", [])
-            dataList = list(map(lambda x: {"fieldName": x[0], "values": [x[1]], "link": 0, "searchType": 1, "index": 0}, dataList))
+            dataList = list(map(lambda x: {"fieldName": x[0], "values": [
+                            x[1]], "link": 0, "searchType": 1, "index": 0}, dataList))
             payload = {
                 "dataList": dataList,
                 "orderByParam": {},
@@ -84,12 +85,12 @@ class NationalLawDatabaseProvider(Provider):
                 "pageSize": page_size
             }
         else:
-            payload = { 
+            payload = {
                 "searchRange": 1,
                 "sxrq": [],
                 "gbrq": [],
                 "searchType": 2,
-                "sxx": [4,3], # 现行有效、未生效
+                "sxx": [4, 3],  # 现行有效、未生效
                 "gbrqYear": [],
                 "flfgCodeId": [102, 110, 120, 130, 140, 150, 160, 170, 180, 190, 195],
                 "zdjgCodeId": [],

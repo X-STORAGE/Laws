@@ -18,7 +18,7 @@ class ContentParser(object):
 
         for i in range(len(content)):
             line = content[i].replace("\u3000", " ").replace("　", " ")
-            line = re.sub("\s+", " ", line)
+            line = re.sub(r"\s+", " ", line)
             if menu_at >= 0 and i == menu_at + 1:
                 pattern = line
 
@@ -43,14 +43,14 @@ class ContentParser(object):
                 if re.match(LINE_START, line):
                     menu_start = False
 
-            if i < 40 and re.match("公\s*告", line):
+            if i < 40 and re.match(r"公\s*告", line):
                 skip = True
 
             # if re.match("^附", line):
             #     break
             if not menu_start and not skip:
                 content_line = re.sub(
-                    f"^(第{NUMBER_RE}{{1,6}}[条章节篇](?:之{NUMBER_RE}{{1,2}})*)\s*",
+                    rf"^(第{NUMBER_RE}{{1,6}}[条章节篇](?:之{NUMBER_RE}{{1,2}})*)\s*",
                     lambda x: x.group(0).strip() + " ",
                     line.strip(),
                 )
@@ -68,7 +68,7 @@ class ContentParser(object):
         )
         desc_arr = map(
             lambda line: re.sub(
-                "^(\d{4,4}年\d{1,2}月\d{1,2}日)", lambda x: x.group(0) + " ", line
+                r"^(\d{4,4}年\d{1,2}月\d{1,2}日)", lambda x: x.group(0) + " ", line
             ),
             desc_arr,
         )

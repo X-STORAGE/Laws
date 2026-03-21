@@ -7,7 +7,7 @@ from typing import Any, List, Dict, Set
 from functools import wraps
 from hashlib import sha1
 
-import urllib.request
+import requests
 import urllib.parse
 
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ class CacheManager(object):
             else:
                 f.write(data if isinstance(data, str) else str(data))
 
-    def download_binary(self, url: str, type: CacheType) -> Path | None:
+    def download_binary(self, url: str, type: CacheType, headers=None) -> Path | None:
         u = urllib.parse.urlparse(url)
 
         # https://flkoss.obs-bj2.cucloud.cn/prod/20251128/5f98d6b9eca7456aa8e53a9f73ef7c7e.docx
@@ -55,9 +55,15 @@ class CacheManager(object):
         path = self.__get_path(name, type)
         if not path.exists():
             try:
-                urllib.request.urlretrieve(url, path)
+                response = requests.get(url, headers=headers, stream=True)
+                response.raise_for_status()
+                with open(path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
             except Exception as e:
-                logger.error(e)
+                logger.error(f"Failed to download {url}: {e}")
+                if path.exists():
+                    path.unlink()
                 return None
         return path
 
@@ -110,7 +116,7 @@ class CacheManager(object):
         r = re.compile(r"(.+)\((\d{4}-\d{2}-\d{2})\)\.md")
         normalized_laws = {}
         for f in full_path.glob("**/*.md"):
-            match = r.match(f.name) 
+            match = r.match(f.name)
             if not match:
                 continue
             title = match.group(1)

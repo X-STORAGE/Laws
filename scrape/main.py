@@ -1,22 +1,23 @@
-from providers.cache_provider import CacheType
+#!../.venv/bin/python
+
 import click
-import click
-from providers import NationalLawDatabaseProvider, Provider
+from providers import NationalLawDatabaseProvider, Provider, CultureAndTourismDatabaseProvider
 import re
 from model.law import LawListItem
 from docx import Document
 from parsers.word import WordParser
-import doc2docx
 from parsers.content import ContentParser
 from pathlib import Path
 import tqdm
 import sys
 import subprocess
 from common import REGION_CODE_MAP
+from typing import Callable
 
-paganing_options= [
+paging_options = [
     click.option('--limit', type=int, default=10)
 ]
+
 
 def add_options(options):
     def _add_options(func):
@@ -24,6 +25,7 @@ def add_options(options):
             func = option(func)
         return func
     return _add_options
+
 
 def should_ignore(name) -> bool:
     title = name.replace("中华人民共和国", "")
@@ -51,15 +53,16 @@ def convert_to_docx(p: Path) -> Path:
         return p
     raise ValueError(f"无法转换文件: {p}")
 
-def process_item(provider: Provider, item: LawListItem, path_modifier: callable = lambda x: x):
+
+def process_item(provider: Provider, item: LawListItem, path_modifier: Callable[[Path], Path] = lambda x: x):
     try:
-        response = provider.fetch_document(item.id)
+        response = provider.fetch_document(item)
     except Exception as e:
         print(f"无法获取文件: {item.title} {e}", file=sys.stderr)
         return False
     if not response or not response.path_to_file:
         raise ValueError(f"无法获取文件: {item.title}")
-    
+
     path_to_file = response.path_to_file
     if path_to_file.suffix == ".doc":
         path_to_file = convert_to_docx(path_to_file)
@@ -112,9 +115,12 @@ def download(law_name):
         process_item(p, item)
 
 
-def _download_all(limit:int, path_modifier: callable = lambda x: x, **kwargs):
-    click.echo(f"Downlaoding {limit if limit > 0 else 'all'} with params: {kwargs}")
-    p: Provider = NationalLawDatabaseProvider()
+def _download_all(p: Provider, limit: int, **kwargs):
+    path_modifier: Callable[[Path], Path] = kwargs.pop(
+        "path_modifier", lambda x: x)
+
+    click.echo(
+        f"Downlaoding {limit if limit > 0 else 'all'} with params: {kwargs}")
     downloaded_laws = p.cache_manager.get_all_laws()
 
     def is_downloaded(title, published_at):
@@ -135,17 +141,18 @@ def _download_all(limit:int, path_modifier: callable = lambda x: x, **kwargs):
                     continue
                 yield item
             page += 1
-    
+
     bar = tqdm.tqdm(total=0, unit="laws", unit_scale=True)
     for count, item in enumerate(loop_laws()):
         bar.set_description(f"Processing: {item.short_title}")
         try:
-            process_item(p, item,path_modifier=path_modifier)
+            process_item(p, item, path_modifier=path_modifier)
         except Exception as e:
             print(f"Failed to process {item.title}: {e}", file=sys.stderr)
         bar.update(1)
 
-@add_options(paganing_options)
+
+@add_options(paging_options)
 @cli.command()
 def download_all(limit: int):
     """Iterate through all laws and download them."""
@@ -155,17 +162,25 @@ def download_all(limit: int):
             311, 320, 330, 340, 350  # 司法解释
         ]
     }
-    _download_all(limit, **kwargs)
+    _download_all(NationalLawDatabaseProvider(), limit, **kwargs)
 
 
-@add_options(paganing_options)
+@add_options(paging_options)
 @cli.command()
 @click.argument("region")
 def download_dlc(region: str, limit: int):
-    """Download DLC for a specific region."""
-    if region not in REGION_CODE_MAP:
-        raise ValueError(f"Unknown region: {region}")
+    if region in REGION_CODE_MAP:
+        __download_regional_dlc(region, limit)
+        return
+    if region == "文化与旅游部":
+        def path_modifier(path: Path):
+            return Path(".") / region / "部门规章" / region / path.name
+        _download_all(CultureAndTourismDatabaseProvider(), limit,
+                      path_modifier=path_modifier)
+        return
 
+
+def __download_regional_dlc(region: str, limit: int):
     kwargs = {
         "flfgCodeId": [
             230,  # 地方性法规
@@ -174,9 +189,12 @@ def download_dlc(region: str, limit: int):
             REGION_CODE_MAP[region]
         ],
     }
+
     def path_modifier(path: Path):
-        return Path(".") / f"{region}地方法规" / "地方性法规"/ region / path.name
-    _download_all(limit,path_modifier=path_modifier,**kwargs)
+        return Path(".") / f"{region}地方法规" / "地方性法规" / region / path.name
+
+    _download_all(NationalLawDatabaseProvider(), limit,
+                  path_modifier=path_modifier, **kwargs)
 
 
 if __name__ == "__main__":
