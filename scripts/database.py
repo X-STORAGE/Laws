@@ -48,7 +48,8 @@ class Law(BaseModel):
     filename = peewee.TextField(null=True)
     publish = peewee.DateField(formats="%Y-%m-%d", null=True)
     valid_from = peewee.DateField(formats="%Y-%m-%d", null=True)
-    valid_to = peewee.DateField(formats="%Y-%m-%d", null=False, default="2099-12-31")
+    valid_to = peewee.DateField(
+        formats="%Y-%m-%d", null=False, default="2099-12-31")
     order = peewee.IntegerField(null=True)
     ver = peewee.IntegerField(null=False, default=0)
 
@@ -77,7 +78,6 @@ class Law(BaseModel):
         if expr:
             return Law.select().where(expr)
         return []
-
 
     def file_path(self):
         cateogry = Category.get(id=self.category_id)
@@ -124,14 +124,7 @@ class Database(object):
             self.db.drop_tables(self.tables)
             self.db.create_tables(self.tables)
 
-    def read_valid_from(self, law: Law):
-        root_folder = self.sqlite_file.parent # parten of sqlite file
-        file_path: Path = root_folder /law.file_path()
-        if not file_path.exists():
-            raise Exception(f"File not found: {file_path}")
-        with open(file_path, "r") as f:
-            content = f.read()
-
+    def extract_valid_from(self, content: str, publish):
         valid_since_publish_keys = [
             "本解释公布施行后",
             "自公布之日起施行",
@@ -139,12 +132,21 @@ class Database(object):
         ]
         for key in valid_since_publish_keys:
             if key in content:
-                return law.publish
+                return publish
         pattern = re.compile(r"自(\d{4})年(\d{1,2})月(\d{1,2})日起施行")
         m = pattern.search(content)
         if m:
             return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
         return None
+
+    def read_valid_from(self, law: Law):
+        root_folder = self.sqlite_file.parent  # parten of sqlite file
+        file_path: Path = root_folder / law.file_path()
+        if not file_path.exists():
+            raise Exception(f"File not found: {file_path}")
+        with open(file_path, "r") as f:
+            content = f.read()
+        return self.extract_valid_from(content, law.publish)
 
     # 更新法律版本
     # 如果任意法律有多个版本（即同名，但多个 publish, 则将 ver 设为其数量）
@@ -161,7 +163,8 @@ class Database(object):
         for _, laws in m.items():
             levels = set(map(lambda x: x.level, laws))
             if len(levels) > 1:
-                print(f"Warning: laws with multiple versions but different levels: {[law.name for law in laws]}")
+                print(
+                    f"Warning: laws with multiple versions but different levels: {[law.name for law in laws]}")
                 continue
             level = levels.pop()
             if level == "司法解释":
@@ -186,7 +189,7 @@ class Database(object):
                     if not publish_str:
                         valid_from = extracted_valid_from
                     else:
-                        # Scenario 1 & 2: 
+                        # Scenario 1 & 2:
                         # If extracted date (from text) is today or future relative to publish date,
                         # it's a future effective law.
                         # If extracted date is in the past relative to publish date,
@@ -199,7 +202,8 @@ class Database(object):
                     valid_from = publish_str
 
                 if not valid_from:
-                    print(f"Warning: {law} has no valid from date and no publish date")
+                    print(
+                        f"Warning: {law} has no valid from date and no publish date")
                     continue
 
                 if i > 0:
@@ -250,7 +254,6 @@ class Database(object):
             law.save()
         return updated_count
 
-
     def migrate(self):
         # 1. Check existing columns
         cursor = self.db.execute_sql("PRAGMA table_info(law)")
@@ -259,7 +262,8 @@ class Database(object):
         # 2. Add valid_from if not exist
         if 'valid_from' not in columns:
             try:
-                self.db.execute_sql('ALTER TABLE law ADD COLUMN valid_from DATE')
+                self.db.execute_sql(
+                    'ALTER TABLE law ADD COLUMN valid_from DATE')
                 print("Added valid_from column")
             except Exception as e:
                 print(f"Error adding valid_from column: {e}")
@@ -268,7 +272,8 @@ class Database(object):
         if 'valid_to' not in columns:
             try:
                 # Note: null=False and default requires care in ALTER TABLE
-                self.db.execute_sql("ALTER TABLE law ADD COLUMN valid_to DATE NOT NULL DEFAULT '2099-12-31'")
+                self.db.execute_sql(
+                    "ALTER TABLE law ADD COLUMN valid_to DATE NOT NULL DEFAULT '2099-12-31'")
                 print("Added valid_to column")
             except Exception as e:
                 print(f"Error adding valid_to column: {e}")
@@ -277,9 +282,11 @@ class Database(object):
         if 'expired' in columns:
             try:
                 # Set expired ones to 1970-01-01
-                self.db.execute_sql("UPDATE law SET valid_to = '1970-01-01' WHERE expired = 1")
+                self.db.execute_sql(
+                    "UPDATE law SET valid_to = '1970-01-01' WHERE expired = 1")
                 # Set non-expired ones to default
-                self.db.execute_sql("UPDATE law SET valid_to = '2099-12-31' WHERE expired = 0")
+                self.db.execute_sql(
+                    "UPDATE law SET valid_to = '2099-12-31' WHERE expired = 0")
                 print("Migrated data from expired to valid_to")
 
                 # Try to drop expired if supported (SQLite 3.35.0+)
@@ -287,7 +294,8 @@ class Database(object):
                     self.db.execute_sql("ALTER TABLE law DROP COLUMN expired")
                     print("Dropped expired column")
                 except Exception:
-                    print("Could not drop expired column (likely older SQLite version), it will be ignored by the model.")
+                    print(
+                        "Could not drop expired column (likely older SQLite version), it will be ignored by the model.")
             except Exception as e:
                 print(f"Error migrating data: {e}")
 
@@ -351,20 +359,21 @@ class Database(object):
             count["created"] += 1
         self.update_versions()
         self.update_category()
+        count["invalidated"] = self.invalidate_laws()
         return count
 
     def update_category(self):
         # if it's dlc, the filepath is ./DLC*/
         # then it should only has 1 category
         # and make sure the subfolder is True
-        isDLC = "DLC" in self.sqlite_file.parts 
+        isDLC = "DLC" in self.sqlite_file.parts
         if not isDLC:
             print("Not DLC, skip update category")
             return
         categories = Category.select()
         assert len(categories) == 1
         category = categories[0]
-        
+
         changed = False
 
         if not category.isSubFolder:
@@ -379,6 +388,55 @@ class Database(object):
 
         if changed:
             category.save()
+
+    def extract_abolished_law_names(self, content: str) -> List[str]:
+        # 匹配紧邻「（同时）废止」之前、由、和，分隔的连续《...》法律名
+        # 避免匹配「修改或者废止」「修订、废止」等无具体法律名的情形
+        names = []
+        clause = re.compile(r"((?:《[^》]+》[、和，]?)+)(?:同时)?废止")
+        for m in clause.finditer(content):
+            for name_m in re.finditer(r"《([^》]+)》", m.group(1)):
+                # 去除「中华人民共和国」前缀以匹配数据库中存储的法律名
+                name = re.sub(r"^中华人民共和国", "", name_m.group(1))
+                names.append(name)
+        return names
+
+    def invalidate_laws(self):
+        print("Invalidating laws")
+        count = 0
+        for law_file, publish_at, law_name in self.load_laws():
+            content = law_file.read_text(encoding="utf-8")
+            abolished_names = self.extract_abolished_law_names(content)
+            if not abolished_names:
+                continue
+
+            valid_from = self.extract_valid_from(
+                content, publish_at) or publish_at
+            if not valid_from:
+                print(f"Warning: {law_name}({publish_at}) 含废止条款但无生效日期")
+                continue
+
+            for name in abolished_names:
+                # 同名版本之间的失效衔接由 update_versions 处理，此处只处理跨法律废止
+                if name == law_name:
+                    continue
+                versions = list(Law.query(name=name))
+                if not versions:
+                    continue
+                # 取最后一个版本，将其 valid_to 设为废止法律的生效日期
+                versions.sort(key=lambda x: x.publish or "")
+                last = versions[-1]
+                # 仅当该版本在废止生效日期之前已发布时才失效；
+                # 否则多为同名但实为另一部法律（如旧《国家安全法》→《反间谍法》）
+                if last.publish and str(last.publish) >= str(valid_from):
+                    continue
+                if str(last.valid_to) != str(valid_from):
+                    last.valid_to = valid_from
+                    last.save()
+                    print(f"✅ {last} 因《{law_name}》废止于 {valid_from}")
+                    count += 1
+
+        return count
 
     def get_law_count(self):
         return Law.select().count()
@@ -403,6 +461,7 @@ def main():
         print(f"Handled: {count['handled']}")
         print(f"Updated: {count['updated']}")
         print(f"Created: {count['created']}")
+        print(f"Invalidated: {count['invalidated']}")
         return
 
     if command == "migrate":
